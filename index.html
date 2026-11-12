@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<html lang="zh-HK" class="dark">
+<html lang="zh-HK">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
@@ -210,7 +210,7 @@
             </button>
 
             <!-- Google Sheet Hub Button -->
-            <button onclick="openSheetModal()" title="Google Sheet 資料庫連結與同步設定" class="p-2 rounded-lg border border-emerald-500/30 bg-emerald-500/10 hover:bg-emerald-500/20 text-emerald-600 dark:text-emerald-400 flex items-center space-x-1 text-xs font-semibold">
+            <button id="sheetSyncBtn" onclick="openSheetModal()" title="Google Sheet 資料庫連結與同步設定" class="hidden p-2 rounded-lg border border-emerald-500/30 bg-emerald-500/10 hover:bg-emerald-500/20 text-emerald-600 dark:text-emerald-400 flex items-center space-x-1 text-xs font-semibold">
                 <i class="fa-solid fa-file-csv text-sm"></i>
                 <span class="hidden lg:inline">Google Sheet 同步</span>
             </button>
@@ -250,8 +250,8 @@
                         </select>
                     </div>
 
-                    <!-- Quick Code Snippets (Always available) -->
-                    <div class="flex items-center space-x-1">
+                    <!-- Quick Code Snippets (teacher only) -->
+                    <div id="quickSnippetsWrapper" class="flex items-center space-x-1">
                         <span class="text-xs text-slate-500 dark:text-slate-400 mr-1"><i class="fa-solid fa-wand-magic-sparkles mr-1"></i>快速範本:</span>
                         <button onclick="loadSnippet('hello')" class="text-xs px-2 py-1 rounded bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 hover:border-blue-500 transition">基本輸入輸出</button>
                         <button onclick="loadSnippet('loop')" class="text-xs px-2 py-1 rounded bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 hover:border-blue-500 transition">For 迴圈與星號</button>
@@ -1233,7 +1233,7 @@ r = float(input())
         let currentUser = null; // null (Guest), { role: 'teacher'|'student', id, name, className, classNo, managedClasses }
         let loginModalRole = 'student'; // 'student' | 'teacher'
         let activeQuestionId = 'FREE'; // 'FREE' or Question ID
-        let gasWebhookUrl = 'https://script.google.com/macros/s/AKfycbwK7h8WVS_OW-eYuodtcEBwbE--3Nlv6-xyeeSOg-YgoIi61k_ngmKB1z2zu_aJ8_cA/exec'; // Default GAS URL
+        let gasWebhookUrl = 'https://script.google.com/macros/s/AKfycbywp0o5s6GxEAz3uTjkhBZOq5O5LoLjv_yuVZyjjyXokzoVvffd3_gU10ZfPY3n-KQs/exec'; // Default GAS URL
 
         // Teachers Accounts DB (All teachers have Admin privileges + own classes management)
         let teachersDB = [
@@ -1413,7 +1413,12 @@ r = float(input())
             }
 
             // Restore other preferences
-            if (localStorage.getItem('cac_theme') === 'light') {
+            // Default is light; only switch to dark if saved
+            if (localStorage.getItem('cac_theme') === 'dark') {
+                document.documentElement.classList.add('dark');
+                document.getElementById('themeIcon').className = 'fa-solid fa-sun text-amber-400';
+                if (cmEditor) cmEditor.setOption('theme', 'material-darker');
+            } else {
                 document.documentElement.classList.remove('dark');
                 document.getElementById('themeIcon').className = 'fa-solid fa-moon text-slate-700';
             }
@@ -1923,6 +1928,10 @@ r = float(input())
             populateWorkspaceQuestions();
 
             if (!currentUser) {
+                const sheetBtn = document.getElementById('sheetSyncBtn');
+                if (sheetBtn) sheetBtn.classList.add('hidden');
+                const snippets = document.getElementById('quickSnippetsWrapper');
+                if (snippets) snippets.classList.add('hidden');
                 badge.innerText = '訪客模式 (未登入)';
                 badge.className = 'px-2.5 py-0.5 text-xs font-semibold rounded-full bg-slate-200 text-slate-700 dark:bg-slate-800 dark:text-slate-300';
                 qPicker.classList.add('hidden');
@@ -1930,6 +1939,11 @@ r = float(input())
                 document.getElementById('activeQuestionBanner').classList.add('hidden');
                 authArea.innerHTML = `<button onclick="openLoginModal()" class="px-3.5 py-2 rounded-xl bg-blue-600 hover:bg-blue-700 text-white text-xs sm:text-sm font-semibold shadow-sm flex items-center space-x-1.5"><i class="fa-solid fa-right-to-bracket"></i><span>登入系統</span></button>`;
             } else if (currentUser.role === 'student') {
+                // Hide Google Sheet sync and quick snippets for students
+                const sheetBtn = document.getElementById('sheetSyncBtn');
+                if (sheetBtn) sheetBtn.classList.add('hidden');
+                const snippets = document.getElementById('quickSnippetsWrapper');
+                if (snippets) snippets.classList.add('hidden');
                 badge.innerText = `學生: ${currentUser.className}班 ${currentUser.classNo}號 ${currentUser.name}`;
                 badge.className = 'px-2.5 py-0.5 text-xs font-semibold rounded-full bg-emerald-500/20 text-emerald-600 dark:text-emerald-400 border border-emerald-500/30';
                 document.getElementById('tab-student-hw').classList.remove('hidden');
@@ -1940,6 +1954,10 @@ r = float(input())
                 const availableQs = getQuestionsForCurrentUser();
                 if (availableQs.length > 0) selectQuestionInWorkspace(availableQs[0].id);
             } else if (currentUser.role === 'teacher') {
+                const sheetBtn = document.getElementById('sheetSyncBtn');
+                if (sheetBtn) sheetBtn.classList.remove('hidden');
+                const snippets = document.getElementById('quickSnippetsWrapper');
+                if (snippets) snippets.classList.remove('hidden');
                 const clsText = currentUser.managedClasses.includes('ALL') ? '全校班別' : currentUser.managedClasses.join(', ');
                 badge.innerText = `老師 Admin: ${currentUser.name} (${clsText})`;
                 badge.className = 'px-2.5 py-0.5 text-xs font-semibold rounded-full bg-indigo-500/20 text-indigo-600 dark:text-indigo-400 border border-indigo-500/30';
@@ -1964,8 +1982,8 @@ r = float(input())
         }
 
         function isQuestionForClass(q, cls, classNo = null) {
-            // Draft questions are only visible to teachers
-            if (q.status === 'draft' && (!currentUser || currentUser.role !== 'teacher')) return false;
+            // Draft and deleted questions are only visible to teachers
+            if ((q.status === 'draft' || q.status === 'deleted') && (!currentUser || currentUser.role !== 'teacher')) return false;
             if (!cls || cls === 'ALL' || !q.targetClasses || q.targetClasses === 'ALL') return true;
             const list = q.targetClasses.split(',').map(s => s.trim());
             for (const target of list) {
@@ -2532,7 +2550,9 @@ r = float(input())
                     <td class="py-3 px-4 font-bold text-blue-600 dark:text-blue-400">${q.id}</td>
                     <td class="py-3 px-4">
                         <span class="px-2.5 py-0.5 rounded-full text-xs font-bold bg-indigo-500/15 text-indigo-600 dark:text-indigo-400">${q.targetClasses || 'ALL'}</span>
-                        ${q.status === 'draft' ? '<span class="ml-1 px-2 py-0.5 rounded-full text-xs font-bold bg-amber-500/20 text-amber-600">草稿</span>' : '<span class="ml-1 px-2 py-0.5 rounded-full text-xs font-bold bg-emerald-500/20 text-emerald-600">已發出</span>'}
+                        ${q.status === 'draft' ? '<span class="ml-1 px-2 py-0.5 rounded-full text-xs font-bold bg-amber-500/20 text-amber-600">草稿</span>' : 
+                          q.status === 'deleted' ? '<span class="ml-1 px-2 py-0.5 rounded-full text-xs font-bold bg-slate-400/20 text-slate-500">已刪除</span>' : 
+                          '<span class="ml-1 px-2 py-0.5 rounded-full text-xs font-bold bg-emerald-500/20 text-emerald-600">已發出</span>'}
                     </td>
                     <td class="py-3 px-4">
                         <div class="font-bold">${q.title}</div>
@@ -2546,9 +2566,10 @@ r = float(input())
                     <td class="py-3 px-4 font-semibold">${subCount} 人</td>
                     <td class="py-3 px-4 text-right space-x-2">
                         <button onclick="editQuestion('${q.id}')" class="text-xs text-indigo-500 hover:underline">編輯</button>
+                        <button onclick="copyQuestionToClass('${q.id}')" class="text-xs text-purple-500 hover:underline">副本</button>
                         <button onclick="toggleQuestionStatus('${q.id}')" class="text-xs text-amber-500 hover:underline">${q.status === 'draft' ? '發出' : '設為草稿'}</button>
                         <button onclick="goPracticeQuestion('${q.id}')" class="text-xs text-blue-500 hover:underline">預覽</button>
-                        <button onclick="deleteQuestion('${q.id}')" class="text-xs text-red-500 hover:underline">刪除</button>
+                        <button onclick="deleteQuestion('${q.id}')" class="text-xs text-red-500 hover:underline">${q.status === 'deleted' ? '已刪除' : '刪除'}</button>
                     </td>
                 </tr>`;
             }).join('');
@@ -2621,13 +2642,14 @@ r = float(input())
                 const idx = questionsDB.findIndex(q => q.id === window.editingQuestionId);
                 if (idx >= 0) questionsDB[idx] = newQ;
                 window.editingQuestionId = null;
+                syncToGoogleSheetWebhook('update_question', newQ);
                 showToast(`已更新題目 ${newQ.id} 並同步至 Google Sheet`);
             } else {
                 questionsDB.push(newQ);
+                syncToGoogleSheetWebhook('questions', newQ);
                 showToast(`已新增題目 ${newQ.id} (派發班別: ${newQ.targetClasses}) 並同步至 Google Sheet`);
             }
             saveToLocalStorage();
-            syncToGoogleSheetWebhook('questions', newQ);
             populateWorkspaceQuestions();
             populateGradingFilters();
             renderTeacherQuestionsTable();
@@ -2636,22 +2658,46 @@ r = float(input())
         }
 
 
+
+        function copyQuestionToClass(qId) {
+            const q = questionsDB.find(item => item.id === qId);
+            if (!q) return;
+            const newClass = prompt('輸入要發出副本的目標班別（例如：4B、4B_ODD、中四全級 或 4A,4B）：', q.targetClasses || '4B');
+            if (!newClass || !newClass.trim()) return;
+            const newId = q.id + '_' + newClass.replace(/[^a-zA-Z0-9]/g, '').slice(0, 8);
+            const copy = JSON.parse(JSON.stringify(q));
+            copy.id = newId;
+            copy.targetClasses = newClass.trim();
+            copy.status = 'draft';
+            copy.title = (q.title || '') + ' (副本)';
+            questionsDB.push(copy);
+            saveToLocalStorage();
+            syncToGoogleSheetWebhook('questions', copy);
+            renderTeacherQuestionsTable();
+            showToast(`已建立題目副本 ${newId} 並設為草稿，可再修改後發出`);
+        }
+
         function toggleQuestionStatus(qId) {
             const q = questionsDB.find(item => item.id === qId);
             if (!q) return;
             q.status = (q.status === 'draft') ? 'published' : 'draft';
             saveToLocalStorage();
+            syncToGoogleSheetWebhook('update_question', q);
             renderTeacherQuestionsTable();
             populateWorkspaceQuestions();
-            showToast(`題目 ${qId} 已${q.status === 'draft' ? '設為草稿' : '正式發出'}`);
+            showToast(`題目 ${qId} 已${q.status === 'draft' ? '設為草稿' : '正式發出'} 並同步至 Google Sheet`);
         }
 
         function deleteQuestion(qId) {
-            questionsDB = questionsDB.filter(q => q.id !== qId);
+            const q = questionsDB.find(item => item.id === qId);
+            if (!q) return;
+            q.status = 'deleted';
+            saveToLocalStorage();
+            syncToGoogleSheetWebhook('update_question', q);
             populateWorkspaceQuestions();
             populateGradingFilters();
             renderTeacherQuestionsTable();
-            showToast('已刪除題目');
+            showToast('已將題目 ' + qId + ' 設為已刪除，學生將不會再見到');
         }
 
         // Teacher Accounts Management
@@ -3053,7 +3099,12 @@ r = float(input())
                 renderTeacherQuestionsTable();
                 renderTeacherAccountsTable();
                 renderTeacherStudentsTable('ALL');
-                if (currentUser && currentUser.role === 'student') renderStudentHomeworkDashboard();
+                if (currentUser && currentUser.role === 'student') {
+                    renderStudentHomeworkDashboard();
+                    populateWorkspaceQuestions();
+                    const availableQs = getQuestionsForCurrentUser();
+                    if (availableQs.length > 0) selectQuestionInWorkspace(availableQs[0].id);
+                }
                 if (!silent) showToast('✅ 已從 Google Sheet 載入最新資料！');
             } catch (err) {
                 if (!silent) showToast('讀取失敗：' + err.message);
