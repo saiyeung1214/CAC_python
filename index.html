@@ -439,6 +439,7 @@
                             <option value="5">5 人</option>
                             <option value="4">4 人</option>
                             <option value="3">3 人</option>
+                            <option value="2">2 人</option>
                         </select>
                         <label class="text-xs font-semibold text-slate-500 ml-2">班別:</label>
                         <select id="gradeClassFilter" onchange="onGradeFilterChange()" class="text-xs sm:text-sm rounded-xl bg-slate-100 dark:bg-slate-900 border border-slate-300 dark:border-slate-700 px-3 py-1.5 font-semibold outline-none">
@@ -498,7 +499,7 @@
             </div>
 
             <!-- 5-Column Side-by-Side Code Comparison Grid -->
-            <div id="fiveStudentGrid" class="flex-1 grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5 gap-3 overflow-x-auto overflow-y-hidden">
+            <div id="fiveStudentGrid" class="flex-1 grid gap-3 overflow-x-auto overflow-y-hidden" style="grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));">
                 <!-- Populated dynamically up to 5 columns -->
             </div>
         </section>
@@ -679,6 +680,10 @@
                         <option value="5A_EVEN">5A 雙數</option>
                     </select>
                     <span class="text-xs text-slate-400">選擇後會即時更新圖表同排行榜</span>
+                    <button onclick="exportAnalyticsReport()" class="ml-auto px-3 py-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-semibold flex items-center space-x-1">
+                        <i class="fa-solid fa-file-export"></i>
+                        <span>匯出報告 (CSV)</span>
+                    </button>
                 </div>
 
                 <!-- Summary KPI Cards -->
@@ -1965,13 +1970,21 @@ r = float(input())
             const list = q.targetClasses.split(',').map(s => s.trim());
             for (const target of list) {
                 if (target === cls) return true;
-                if (target.endsWith('_ODD') && classNo !== null) {
+                // Handle 3C_ODD style targets when filtering by base class or by _ODD filter
+                if (target.endsWith('_ODD')) {
                     const base = target.replace('_ODD', '');
-                    if (cls === base && parseInt(classNo, 10) % 2 === 1) return true;
+                    if (cls === base || cls === target) return true;
+                    if (classNo !== null && cls === base && parseInt(classNo, 10) % 2 === 1) return true;
                 }
-                if (target.endsWith('_EVEN') && classNo !== null) {
+                if (target.endsWith('_EVEN')) {
                     const base = target.replace('_EVEN', '');
-                    if (cls === base && parseInt(classNo, 10) % 2 === 0) return true;
+                    if (cls === base || cls === target) return true;
+                    if (classNo !== null && cls === base && parseInt(classNo, 10) % 2 === 0) return true;
+                }
+                // Also match if filter is 3C_ODD and target is 3C
+                if (cls.endsWith('_ODD') || cls.endsWith('_EVEN')) {
+                    const filterBase = cls.replace(/_ODD|_EVEN/, '');
+                    if (target === filterBase || target === cls) return true;
                 }
             }
             return false;
@@ -2201,11 +2214,22 @@ r = float(input())
         // --- 8. TEACHER 5-STUDENT SIDE-BY-SIDE GRADING & PRESETS ---
         function populateGradingFilters() {
             const select = document.getElementById('gradeQuestionSelect');
-            const list = getQuestionsForCurrentUser();
+            if (!select) return;
+            const classFilter = document.getElementById('gradeClassFilter') ? document.getElementById('gradeClassFilter').value : 'ALL';
+            let list = getQuestionsForCurrentUser();
+            // Filter questions that are relevant to the selected class
+            if (classFilter && classFilter !== 'ALL') {
+                list = list.filter(q => isQuestionForClass(q, classFilter));
+            }
+            const currentVal = select.value;
             select.innerHTML = list.map(q => `<option value="${q.id}">${q.id} [${q.targetClasses || 'ALL'}]: ${q.title}</option>`).join('');
+            if (currentVal && [...select.options].some(o => o.value === currentVal)) {
+                select.value = currentVal;
+            }
         }
 
         function onGradeFilterChange() {
+            populateGradingFilters();
             applyFivePreset('classNo');
         }
 
@@ -2343,8 +2367,10 @@ r = float(input())
 
             // Render up to 5 Columns
             const grid = document.getElementById('fiveStudentGrid');
+            const count = getCompareCount();
+            grid.style.gridTemplateColumns = `repeat(${Math.min(count, selectedCompareStuIds.length || count)}, 1fr)`;
             if (selectedCompareStuIds.length === 0) {
-                grid.innerHTML = `<div class="col-span-5 flex items-center justify-center text-slate-400 text-sm">請點選上方「5人快速預設」或個別學生名牌進行並排檢視與評分</div>`;
+                grid.innerHTML = `<div class="col-span-full flex items-center justify-center text-slate-400 text-sm py-10">請點選上方「快速預設」或個別學生名牌進行並排檢視與評分</div>`;
                 return;
             }
 
@@ -2712,8 +2738,12 @@ r = float(input())
             const gradeSelect = document.getElementById('gradeClassFilter');
             if (gradeSelect) {
                 const currentVal = gradeSelect.value;
+                let allowedClasses = classes;
+                if (currentUser && currentUser.role === 'teacher' && !currentUser.managedClasses.includes('ALL')) {
+                    allowedClasses = classes.filter(c => currentUser.managedClasses.includes(c));
+                }
                 let options = '<option value="ALL">全部任教班別</option>';
-                classes.forEach(cls => {
+                allowedClasses.forEach(cls => {
                     options += `<option value="${cls}">${cls} 全班</option>`;
                     options += `<option value="${cls}_ODD">${cls} 單數</option>`;
                     options += `<option value="${cls}_EVEN">${cls} 雙數</option>`;
@@ -2738,8 +2768,12 @@ r = float(input())
             const anaFilter = document.getElementById('analyticsClassFilter');
             if (anaFilter) {
                 const currentVal = anaFilter.value;
-                let options = '<option value="ALL">全部班別</option>';
-                classes.forEach(cls => {
+                let allowedClasses = classes;
+                if (currentUser && currentUser.role === 'teacher' && !currentUser.managedClasses.includes('ALL')) {
+                    allowedClasses = classes.filter(c => currentUser.managedClasses.includes(c));
+                }
+                let options = '<option value="ALL">全部任教班別</option>';
+                allowedClasses.forEach(cls => {
                     options += `<option value="${cls}">${cls} 全班</option>`;
                     options += `<option value="${cls}_ODD">${cls} 單數</option>`;
                     options += `<option value="${cls}_EVEN">${cls} 雙數</option>`;
@@ -3135,6 +3169,33 @@ r = float(input())
         // --- 12. TEACHER ANALYTICS REPORT & CHARTS ---
         let qChartInstance = null;
         let cChartInstance = null;
+
+
+        function exportAnalyticsReport() {
+            const classFilter = document.getElementById('analyticsClassFilter') ? document.getElementById('analyticsClassFilter').value : 'ALL';
+            const filteredStudents = studentsDB.filter(s => {
+                if (!matchesClassFilter(s, classFilter)) return false;
+                if (currentUser && currentUser.role === 'teacher' && !currentUser.managedClasses.includes('ALL')) {
+                    if (!currentUser.managedClasses.includes(s.className)) return false;
+                }
+                return true;
+            });
+
+            let csv = '班別,學號,姓名,帳號,已繳交題數,平均分\n';
+            filteredStudents.forEach(stu => {
+                const subs = submissionsDB.filter(s => s.stuId === stu.id);
+                const scored = subs.filter(s => s.score !== null && s.score !== '');
+                const avg = scored.length > 0 ? (scored.reduce((a, b) => a + Number(b.score), 0) / scored.length).toFixed(1) : '';
+                csv += `"${stu.className}","${stu.classNo || ''}","${stu.name}","${stu.id}","${subs.length}","${avg}"\n`;
+            });
+
+            const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+            const link = document.createElement('a');
+            link.href = URL.createObjectURL(blob);
+            link.download = `分析報告_${classFilter || '全部'}_${new Date().toISOString().slice(0,10)}.csv`;
+            link.click();
+            showToast('已匯出分析報告 CSV');
+        }
 
         function initAnalyticsCharts() {
             const classFilter = document.getElementById('analyticsClassFilter') ? document.getElementById('analyticsClassFilter').value : 'ALL';
