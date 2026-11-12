@@ -1233,7 +1233,7 @@ r = float(input())
         let currentUser = null; // null (Guest), { role: 'teacher'|'student', id, name, className, classNo, managedClasses }
         let loginModalRole = 'student'; // 'student' | 'teacher'
         let activeQuestionId = 'FREE'; // 'FREE' or Question ID
-        let gasWebhookUrl = 'https://script.google.com/macros/s/AKfycbywp0o5s6GxEAz3uTjkhBZOq5O5LoLjv_yuVZyjjyXokzoVvffd3_gU10ZfPY3n-KQs/exec'; // Default GAS URL
+        let gasWebhookUrl = 'https://script.google.com/macros/s/AKfycbziYhC0VqrhXeZr0mfQQQMsBXuejxN_Whbo6vss9P3fVgQGBiNC_UCokW9ZqS7o8xar/exec'; // Default GAS URL
 
         // Teachers Accounts DB (All teachers have Admin privileges + own classes management)
         let teachersDB = [
@@ -1985,24 +1985,22 @@ r = float(input())
             // Draft and deleted questions are only visible to teachers
             if ((q.status === 'draft' || q.status === 'deleted') && (!currentUser || currentUser.role !== 'teacher')) return false;
             if (!cls || cls === 'ALL' || !q.targetClasses || q.targetClasses === 'ALL') return true;
-            const list = q.targetClasses.split(',').map(s => s.trim());
+
+            // Support full-grade filter (e.g. "3A,3B,3C,3D")
+            const filterClasses = cls.includes(',') ? cls.split(',').map(s => s.trim()) : [cls];
+            const list = (q.targetClasses || '').split(',').map(s => s.trim());
+
             for (const target of list) {
-                if (target === cls) return true;
-                // Handle 3C_ODD style targets when filtering by base class or by _ODD filter
-                if (target.endsWith('_ODD')) {
-                    const base = target.replace('_ODD', '');
-                    if (cls === base || cls === target) return true;
-                    if (classNo !== null && cls === base && parseInt(classNo, 10) % 2 === 1) return true;
-                }
-                if (target.endsWith('_EVEN')) {
-                    const base = target.replace('_EVEN', '');
-                    if (cls === base || cls === target) return true;
-                    if (classNo !== null && cls === base && parseInt(classNo, 10) % 2 === 0) return true;
-                }
-                // Also match if filter is 3C_ODD and target is 3C
-                if (cls.endsWith('_ODD') || cls.endsWith('_EVEN')) {
-                    const filterBase = cls.replace(/_ODD|_EVEN/, '');
-                    if (target === filterBase || target === cls) return true;
+                if (!target) continue;
+                const targetBase = target.replace(/_ODD|_EVEN/i, '');
+                for (const filterCls of filterClasses) {
+                    if (!filterCls) continue;
+                    if (target === filterCls) return true;
+                    const filterBase = filterCls.replace(/_ODD|_EVEN/i, '');
+                    // Full grade match: 3C_ODD matches when filter contains 3C
+                    if (filterBase === targetBase) return true;
+                    if (targetBase === filterCls) return true;
+                    if (filterBase === target) return true;
                 }
             }
             return false;
@@ -2594,8 +2592,11 @@ r = float(input())
             }
             classes.forEach(cls => {
                 opts += `<option value="${cls}">${cls} 全班</option>`;
-                opts += `<option value="${cls}_ODD">${cls} 單數</option>`;
-                opts += `<option value="${cls}_EVEN">${cls} 雙數</option>`;
+                // Only S1-S3 have odd/even
+                if (cls.startsWith('1') || cls.startsWith('2') || cls.startsWith('3')) {
+                    opts += `<option value="${cls}_ODD">${cls} 單數</option>`;
+                    opts += `<option value="${cls}_EVEN">${cls} 雙數</option>`;
+                }
             });
             sel.innerHTML = opts;
         }
@@ -2639,10 +2640,12 @@ r = float(input())
                 status: document.getElementById('newQStatus') ? document.getElementById('newQStatus').value : 'published'
             };
             if (window.editingQuestionId) {
-                const idx = questionsDB.findIndex(q => q.id === window.editingQuestionId);
+                const originalId = window.editingQuestionId;
+                const idx = questionsDB.findIndex(q => q.id === originalId);
                 if (idx >= 0) questionsDB[idx] = newQ;
                 window.editingQuestionId = null;
-                syncToGoogleSheetWebhook('update_question', newQ);
+                // Send both new data and original ID so Sheet can update even if ID changed
+                syncToGoogleSheetWebhook('update_question', { ...newQ, originalId: originalId });
                 showToast(`已更新題目 ${newQ.id} 並同步至 Google Sheet`);
             } else {
                 questionsDB.push(newQ);
@@ -2750,6 +2753,11 @@ r = float(input())
 
         function matchesClassFilter(stu, filter) {
             if (!filter || filter === 'ALL') return true;
+            // Support full-grade filter (e.g. "3A,3B,3C,3D")
+            if (filter.includes(',')) {
+                const classes = filter.split(',').map(s => s.trim());
+                return classes.includes(stu.className);
+            }
             if (filter.endsWith('_ODD')) {
                 const base = filter.replace('_ODD', '');
                 const no = parseInt(stu.classNo || '1', 10);
@@ -2773,10 +2781,19 @@ r = float(input())
             if (stuFilterDiv) {
                 let html = '<span class="text-xs font-semibold text-slate-500">篩選:</span>';
                 html += '<button onclick="filterStudentTable(\'ALL\')" class="px-3 py-1 rounded-lg text-xs font-semibold bg-blue-600 text-white">全部</button>';
+                // Full grade buttons
+                html += '<button onclick="filterStudentTable(\'1A,1B,1C,1D\')" class="px-3 py-1 rounded-lg text-xs font-semibold bg-slate-100 dark:bg-slate-800 hover:bg-slate-200">中一全級</button>';
+                html += '<button onclick="filterStudentTable(\'2A,2B,2C,2D\')" class="px-3 py-1 rounded-lg text-xs font-semibold bg-slate-100 dark:bg-slate-800 hover:bg-slate-200">中二全級</button>';
+                html += '<button onclick="filterStudentTable(\'3A,3B,3C,3D\')" class="px-3 py-1 rounded-lg text-xs font-semibold bg-slate-100 dark:bg-slate-800 hover:bg-slate-200">中三全級</button>';
+                html += '<button onclick="filterStudentTable(\'4A,4B,4C,4D,4E\')" class="px-3 py-1 rounded-lg text-xs font-semibold bg-slate-100 dark:bg-slate-800 hover:bg-slate-200">中四全級</button>';
+                html += '<button onclick="filterStudentTable(\'5A,5B,5C,5D,5E\')" class="px-3 py-1 rounded-lg text-xs font-semibold bg-slate-100 dark:bg-slate-800 hover:bg-slate-200">中五全級</button>';
+                html += '<button onclick="filterStudentTable(\'6A,6B,6C,6D,6E\')" class="px-3 py-1 rounded-lg text-xs font-semibold bg-slate-100 dark:bg-slate-800 hover:bg-slate-200">中六全級</button>';
                 classes.forEach(cls => {
                     html += `<button onclick="filterStudentTable('${cls}')" class="px-3 py-1 rounded-lg text-xs font-semibold bg-slate-100 dark:bg-slate-800 hover:bg-slate-200">${cls} 全班</button>`;
-                    html += `<button onclick="filterStudentTable('${cls}_ODD')" class="px-3 py-1 rounded-lg text-xs font-semibold bg-slate-100 dark:bg-slate-800 hover:bg-slate-200">${cls} 單數</button>`;
-                    html += `<button onclick="filterStudentTable('${cls}_EVEN')" class="px-3 py-1 rounded-lg text-xs font-semibold bg-slate-100 dark:bg-slate-800 hover:bg-slate-200">${cls} 雙數</button>`;
+                    if (cls.startsWith('1') || cls.startsWith('2') || cls.startsWith('3')) {
+                        html += `<button onclick="filterStudentTable('${cls}_ODD')" class="px-3 py-1 rounded-lg text-xs font-semibold bg-slate-100 dark:bg-slate-800 hover:bg-slate-200">${cls} 單數</button>`;
+                        html += `<button onclick="filterStudentTable('${cls}_EVEN')" class="px-3 py-1 rounded-lg text-xs font-semibold bg-slate-100 dark:bg-slate-800 hover:bg-slate-200">${cls} 雙數</button>`;
+                    }
                 });
                 stuFilterDiv.innerHTML = html;
             }
@@ -2788,12 +2805,22 @@ r = float(input())
                 if (currentUser && currentUser.role === 'teacher' && !currentUser.managedClasses.includes('ALL')) {
                     allowedClasses = classes.filter(c => currentUser.managedClasses.includes(c));
                 }
+
                 let options = '<option value="ALL">全部任教班別</option>';
+                options += '<option value="1A,1B,1C,1D">中一全級</option>';
+                options += '<option value="2A,2B,2C,2D">中二全級</option>';
+                options += '<option value="3A,3B,3C,3D">中三全級</option>';
+                options += '<option value="4A,4B,4C,4D,4E">中四全級</option>';
+                options += '<option value="5A,5B,5C,5D,5E">中五全級</option>';
+                options += '<option value="6A,6B,6C,6D,6E">中六全級</option>';
                 allowedClasses.forEach(cls => {
                     options += `<option value="${cls}">${cls} 全班</option>`;
-                    options += `<option value="${cls}_ODD">${cls} 單數</option>`;
-                    options += `<option value="${cls}_EVEN">${cls} 雙數</option>`;
+                    if (cls.startsWith('1') || cls.startsWith('2') || cls.startsWith('3')) {
+                        options += `<option value="${cls}_ODD">${cls} 單數</option>`;
+                        options += `<option value="${cls}_EVEN">${cls} 雙數</option>`;
+                    }
                 });
+
                 gradeSelect.innerHTML = options;
                 if ([...gradeSelect.options].some(o => o.value === currentVal)) gradeSelect.value = currentVal;
             }
@@ -2802,10 +2829,18 @@ r = float(input())
             if (qFilter) {
                 const currentVal = qFilter.value;
                 let options = '<option value="ALL">顯示全部班別題目</option>';
+                options += '<option value="1A,1B,1C,1D">中一全級</option>';
+                options += '<option value="2A,2B,2C,2D">中二全級</option>';
+                options += '<option value="3A,3B,3C,3D">中三全級</option>';
+                options += '<option value="4A,4B,4C,4D,4E">中四全級</option>';
+                options += '<option value="5A,5B,5C,5D,5E">中五全級</option>';
+                options += '<option value="6A,6B,6C,6D,6E">中六全級</option>';
                 classes.forEach(cls => {
                     options += `<option value="${cls}">${cls} 全班</option>`;
-                    options += `<option value="${cls}_ODD">${cls} 單數</option>`;
-                    options += `<option value="${cls}_EVEN">${cls} 雙數</option>`;
+                    if (cls.startsWith('1') || cls.startsWith('2') || cls.startsWith('3')) {
+                        options += `<option value="${cls}_ODD">${cls} 單數</option>`;
+                        options += `<option value="${cls}_EVEN">${cls} 雙數</option>`;
+                    }
                 });
                 qFilter.innerHTML = options;
                 if ([...qFilter.options].some(o => o.value === currentVal)) qFilter.value = currentVal;
@@ -2819,10 +2854,18 @@ r = float(input())
                     allowedClasses = classes.filter(c => currentUser.managedClasses.includes(c));
                 }
                 let options = '<option value="ALL">全部任教班別</option>';
+                options += '<option value="1A,1B,1C,1D">中一全級</option>';
+                options += '<option value="2A,2B,2C,2D">中二全級</option>';
+                options += '<option value="3A,3B,3C,3D">中三全級</option>';
+                options += '<option value="4A,4B,4C,4D,4E">中四全級</option>';
+                options += '<option value="5A,5B,5C,5D,5E">中五全級</option>';
+                options += '<option value="6A,6B,6C,6D,6E">中六全級</option>';
                 allowedClasses.forEach(cls => {
                     options += `<option value="${cls}">${cls} 全班</option>`;
-                    options += `<option value="${cls}_ODD">${cls} 單數</option>`;
-                    options += `<option value="${cls}_EVEN">${cls} 雙數</option>`;
+                    if (cls.startsWith('1') || cls.startsWith('2') || cls.startsWith('3')) {
+                        options += `<option value="${cls}_ODD">${cls} 單數</option>`;
+                        options += `<option value="${cls}_EVEN">${cls} 雙數</option>`;
+                    }
                 });
                 anaFilter.innerHTML = options;
                 if ([...anaFilter.options].some(o => o.value === currentVal)) anaFilter.value = currentVal;
