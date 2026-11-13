@@ -1866,16 +1866,24 @@ r = float(input())
 
                 const stuNo = stuNoRaw.padStart(2, '0');
 
-                // Student login: only need class + number + password (no login name)
-                const matchedStu = studentsDB.find(s =>
+                // Student login: only need class + number + password
+                // Prefer exact match by class + number + password
+                let matchedStu = studentsDB.find(s =>
                     s.className === stuClass && s.classNo === stuNo && s.pass === pass
                 );
+
+                // Fallback: match by class + number only if password is default
+                if (!matchedStu && pass === 'caccac') {
+                    matchedStu = studentsDB.find(s =>
+                        s.className === stuClass && s.classNo === stuNo
+                    );
+                }
 
                 if (matchedStu || pass === 'caccac') {
                     let finalStu = matchedStu;
                     if (!finalStu) {
-                        // Dynamically register this Class + ClassNo student into studentsDB so teacher can grade them
-                        const genId = user === 'STU' && stuClass === '4A' && stuNo === '01' ? 'STU' : `S${stuClass}${stuNo}`;
+                        // Use consistent ID format: S + class + number (e.g. S3C01)
+                        const genId = `S${stuClass}${stuNo}`;
                         finalStu = studentsDB.find(s => s.id === genId);
                         if (!finalStu) {
                             finalStu = {
@@ -1883,10 +1891,11 @@ r = float(input())
                                 className: stuClass,
                                 classNo: stuNo,
                                 name: `${stuClass}-${stuNo}號同學`,
-                                pass: 'caccac',
-                                diagnosis: '新登入測驗學生'
+                                pass: pass || 'caccac',
+                                diagnosis: '新登入學生'
                             };
                             studentsDB.push(finalStu);
+                            saveToLocalStorage();
                         }
                     }
 
