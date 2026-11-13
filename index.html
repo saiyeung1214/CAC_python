@@ -3100,7 +3100,12 @@ r = float(input())
                 if (qJson.status === 'ok' && qJson.data) {
                     const loaded = parseSheetData(qJson.data, "questions");
                     if (loaded.length > 0) {
-                        questionsDB = loaded;
+                        // Deduplicate by ID, keep the last (most recent) occurrence
+                        const unique = {};
+                        loaded.forEach(q => { if (q.id) unique[q.id] = q; });
+                        questionsDB = Object.values(unique);
+                        // Clear stale local cache
+                        localStorage.removeItem('cac_questions');
                     }
                 }
 
