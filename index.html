@@ -1803,13 +1803,15 @@ r = float(input())
                 tabStu.className = 'py-2 rounded-lg text-xs font-bold bg-white dark:bg-slate-900 text-emerald-600 dark:text-emerald-400 shadow-sm transition';
                 tabTea.className = 'py-2 rounded-lg text-xs font-bold text-slate-500 hover:text-slate-800 dark:hover:text-white transition';
                 stuFields.classList.remove('hidden');
-                idLabel.innerText = '測驗或學生登入帳號 (Login ID)';
-                userInp.placeholder = '輸入 STU 或個人帳號 (如 S4A02)';
+                // Hide login name for students - only need class + number + password
+                document.getElementById('loginUsername').parentElement.classList.add('hidden');
+                idLabel.innerText = '學生密碼';
                 passInp.placeholder = '輸入學生密碼 (預設 caccac)';
             } else {
                 tabTea.className = 'py-2 rounded-lg text-xs font-bold bg-white dark:bg-slate-900 text-indigo-600 dark:text-indigo-400 shadow-sm transition';
                 tabStu.className = 'py-2 rounded-lg text-xs font-bold text-slate-500 hover:text-slate-800 dark:hover:text-white transition';
                 stuFields.classList.add('hidden');
+                document.getElementById('loginUsername').parentElement.classList.remove('hidden');
                 idLabel.innerText = '老師 / Admin 帳號 (Teacher ID)';
                 userInp.placeholder = '輸入 CAC 或老師帳號 (如 T_CHAN)';
                 passInp.placeholder = '輸入老師密碼 (預設 cacict)';
@@ -1864,13 +1866,12 @@ r = float(input())
 
                 const stuNo = stuNoRaw.padStart(2, '0');
 
-                // Match either generic exam login (STU / caccac) or specific student account
+                // Student login: only need class + number + password (no login name)
                 const matchedStu = studentsDB.find(s =>
-                    (s.id.toUpperCase() === user && s.pass === pass) ||
-                    (user === 'STU' && pass === 'caccac' && s.className === stuClass && s.classNo === stuNo)
+                    s.className === stuClass && s.classNo === stuNo && s.pass === pass
                 );
 
-                if (matchedStu || (user === 'STU' && pass === 'caccac')) {
+                if (matchedStu || pass === 'caccac') {
                     let finalStu = matchedStu;
                     if (!finalStu) {
                         // Dynamically register this Class + ClassNo student into studentsDB so teacher can grade them
@@ -2220,7 +2221,7 @@ r = float(input())
             }
             saveToLocalStorage();
 
-            syncToGoogleSheetWebhook('grades', payload);
+            syncToGoogleSheetWebhook('update_grade', payload);
             closeSubmitHomeworkModal();
             selectQuestionInWorkspace(activeQuestionId);
             renderStudentHomeworkDashboard();
@@ -2515,7 +2516,7 @@ r = float(input())
             }
             saveToLocalStorage();
 
-            syncToGoogleSheetWebhook('grades', record);
+            syncToGoogleSheetWebhook('update_grade', record);
             renderGradingView();
             showToast(`✅ 已儲存 ${stuId} 的評分 (${scoreVal}分) 並同步至 Google Sheet！`);
         }
@@ -3146,7 +3147,10 @@ r = float(input())
                     renderStudentHomeworkDashboard();
                     populateWorkspaceQuestions();
                     const availableQs = getQuestionsForCurrentUser();
-                    if (availableQs.length > 0) selectQuestionInWorkspace(availableQs[0].id);
+                    if (availableQs.length > 0) {
+                        selectQuestionInWorkspace(availableQs[0].id);
+                    }
+                    showToast(`已載入 ${availableQs.length} 個可用練習`);
                 }
                 if (!silent) showToast('✅ 已從 Google Sheet 載入最新資料！');
             } catch (err) {
