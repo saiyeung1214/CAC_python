@@ -1996,21 +1996,40 @@ r = float(input())
             if ((q.status === 'draft' || q.status === 'deleted') && (!currentUser || currentUser.role !== 'teacher')) return false;
             if (!cls || cls === 'ALL' || !q.targetClasses || q.targetClasses === 'ALL') return true;
 
-            // Support full-grade filter (e.g. "3A,3B,3C,3D")
-            const filterClasses = cls.includes(',') ? cls.split(',').map(s => s.trim()) : [cls];
+            // Detect if filter is full-grade with odd/even suffix
+            let filterOddEven = null;
+            let filterRaw = cls;
+            if (cls.endsWith('_ODD')) {
+                filterOddEven = 'odd';
+                filterRaw = cls.replace('_ODD', '');
+            } else if (cls.endsWith('_EVEN')) {
+                filterOddEven = 'even';
+                filterRaw = cls.replace('_EVEN', '');
+            }
+
+            const filterClasses = filterRaw.includes(',') ? filterRaw.split(',').map(s => s.trim()) : [filterRaw];
             const list = (q.targetClasses || '').split(',').map(s => s.trim());
 
             for (const target of list) {
                 if (!target) continue;
                 const targetBase = target.replace(/_ODD|_EVEN/i, '');
+                const targetIsOdd = target.toUpperCase().endsWith('_ODD');
+                const targetIsEven = target.toUpperCase().endsWith('_EVEN');
+
                 for (const filterCls of filterClasses) {
                     if (!filterCls) continue;
-                    if (target === filterCls) return true;
                     const filterBase = filterCls.replace(/_ODD|_EVEN/i, '');
-                    // Full grade match: 3C_ODD matches when filter contains 3C
-                    if (filterBase === targetBase) return true;
-                    if (targetBase === filterCls) return true;
-                    if (filterBase === target) return true;
+
+                    // Class must match
+                    if (filterBase !== targetBase && filterCls !== target && filterCls !== targetBase) continue;
+
+                    // If filter is full-grade EVEN, exclude pure ODD targets
+                    if (filterOddEven === 'even' && targetIsOdd) continue;
+                    // If filter is full-grade ODD, exclude pure EVEN targets
+                    if (filterOddEven === 'odd' && targetIsEven) continue;
+
+                    // Match found
+                    return true;
                 }
             }
             return false;
@@ -2763,12 +2782,55 @@ r = float(input())
             showToast('已移除老師帳號');
         }
 
+
+        function getTeacherAllowedClasses() {
+            if (!currentUser || currentUser.role !== 'teacher' || currentUser.managedClasses.includes('ALL')) {
+                return ['1A','1B','1C','1D','2A','2B','2C','2D','3A','3B','3C','3D','4A','4B','4C','4D','4E','5A','5B','5C','5D','5E','6A','6B','6C','6D','6E'];
+            }
+            return currentUser.managedClasses;
+        }
+
+        function getFullGradeOptions(allowedClasses) {
+            const grades = {
+                '中一全級': ['1A','1B','1C','1D'],
+                '中二全級': ['2A','2B','2C','2D'],
+                '中三全級': ['3A','3B','3C','3D'],
+                '中四全級': ['4A','4B','4C','4D','4E'],
+                '中五全級': ['5A','5B','5C','5D','5E'],
+                '中六全級': ['6A','6B','6C','6D','6E']
+            };
+            const options = [];
+            for (const [label, clsList] of Object.entries(grades)) {
+                const hasAny = clsList.some(c => allowedClasses.includes(c));
+                if (hasAny) {
+                    options.push({ value: clsList.join(','), label: label });
+                    // Add odd/even for S1-S3
+                    if (label.includes('中一') || label.includes('中二') || label.includes('中三')) {
+                        options.push({ value: clsList.join(',') + '_ODD', label: label + '單數' });
+                        options.push({ value: clsList.join(',') + '_EVEN', label: label + '雙數' });
+                    }
+                }
+            }
+            return options;
+        }
+
         function matchesClassFilter(stu, filter) {
             if (!filter || filter === 'ALL') return true;
-            // Support full-grade filter (e.g. "3A,3B,3C,3D")
+            // Support full-grade filter (e.g. "3A,3B,3C,3D" or "3A,3B,3C,3D_EVEN")
             if (filter.includes(',')) {
-                const classes = filter.split(',').map(s => s.trim());
-                return classes.includes(stu.className);
+                let classes = filter.split(',').map(s => s.trim());
+                let oddEven = null;
+                if (filter.endsWith('_ODD')) {
+                    oddEven = 'odd';
+                    classes = classes.map(c => c.replace('_ODD', ''));
+                } else if (filter.endsWith('_EVEN')) {
+                    oddEven = 'even';
+                    classes = classes.map(c => c.replace('_EVEN', ''));
+                }
+                if (!classes.includes(stu.className)) return false;
+                if (oddEven === 'odd') return parseInt(stu.classNo || '1', 10) % 2 === 1;
+                if (oddEven === 'even') return parseInt(stu.classNo || '1', 10) % 2 === 0;
+                return true;
             }
             if (filter.endsWith('_ODD')) {
                 const base = filter.replace('_ODD', '');
@@ -2784,22 +2846,39 @@ r = float(input())
         }
 
 
+
+        function populateClassSelect(selectEl, allLabel) {
+            if (!selectEl) return;
+            const allowedClasses = getTeacherAllowedClasses();
+            const fullGradeOpts = getFullGradeOptions(allowedClasses);
+            const currentVal = selectEl.value;
+            let options = `<option value="ALL">${allLabel}</option>`;
+            fullGradeOpts.forEach(opt => {
+                options += `<option value="${opt.value}">${opt.label}</option>`;
+            });
+            allowedClasses.forEach(cls => {
+                options += `<option value="${cls}">${cls} 全班</option>`;
+                if (cls.startsWith('1') || cls.startsWith('2') || cls.startsWith('3')) {
+                    options += `<option value="${cls}_ODD">${cls} 單數</option>`;
+                    options += `<option value="${cls}_EVEN">${cls} 雙數</option>`;
+                }
+            });
+            selectEl.innerHTML = options;
+            if ([...selectEl.options].some(o => o.value === currentVal)) selectEl.value = currentVal;
+        }
+
         function refreshClassFilters() {
-            const predefined = ['1A','1B','1C','1D','2A','2B','2C','2D','3A','3B','3C','3D','4A','4B','4C','4D','4E','5A','5B','5C','5D','5E','6A','6B','6C','6D','6E'];
-            const existing = [...new Set(studentsDB.map(s => s.className))];
-            const classes = [...new Set([...predefined, ...existing])].sort();
+            const allowedClasses = getTeacherAllowedClasses();
+            const classes = allowedClasses.slice().sort();
+            const fullGradeOpts = getFullGradeOptions(allowedClasses);
 
             const stuFilterDiv = document.getElementById('dynamicStudentFilters');
             if (stuFilterDiv) {
                 let html = '<span class="text-xs font-semibold text-slate-500">篩選:</span>';
-                html += '<button onclick="filterStudentTable(\'ALL\')" class="px-3 py-1 rounded-lg text-xs font-semibold bg-blue-600 text-white">全部</button>';
-                // Full grade buttons
-                html += '<button onclick="filterStudentTable(\'1A,1B,1C,1D\')" class="px-3 py-1 rounded-lg text-xs font-semibold bg-slate-100 dark:bg-slate-800 hover:bg-slate-200">中一全級</button>';
-                html += '<button onclick="filterStudentTable(\'2A,2B,2C,2D\')" class="px-3 py-1 rounded-lg text-xs font-semibold bg-slate-100 dark:bg-slate-800 hover:bg-slate-200">中二全級</button>';
-                html += '<button onclick="filterStudentTable(\'3A,3B,3C,3D\')" class="px-3 py-1 rounded-lg text-xs font-semibold bg-slate-100 dark:bg-slate-800 hover:bg-slate-200">中三全級</button>';
-                html += '<button onclick="filterStudentTable(\'4A,4B,4C,4D,4E\')" class="px-3 py-1 rounded-lg text-xs font-semibold bg-slate-100 dark:bg-slate-800 hover:bg-slate-200">中四全級</button>';
-                html += '<button onclick="filterStudentTable(\'5A,5B,5C,5D,5E\')" class="px-3 py-1 rounded-lg text-xs font-semibold bg-slate-100 dark:bg-slate-800 hover:bg-slate-200">中五全級</button>';
-                html += '<button onclick="filterStudentTable(\'6A,6B,6C,6D,6E\')" class="px-3 py-1 rounded-lg text-xs font-semibold bg-slate-100 dark:bg-slate-800 hover:bg-slate-200">中六全級</button>';
+                html += '<button onclick="filterStudentTable(\'ALL\')" class="px-3 py-1 rounded-lg text-xs font-semibold bg-blue-600 text-white">全部任教</button>';
+                fullGradeOpts.forEach(opt => {
+                    html += `<button onclick="filterStudentTable('${opt.value}')" class="px-3 py-1 rounded-lg text-xs font-semibold bg-slate-100 dark:bg-slate-800 hover:bg-slate-200">${opt.label}</button>`;
+                });
                 classes.forEach(cls => {
                     html += `<button onclick="filterStudentTable('${cls}')" class="px-3 py-1 rounded-lg text-xs font-semibold bg-slate-100 dark:bg-slate-800 hover:bg-slate-200">${cls} 全班</button>`;
                     if (cls.startsWith('1') || cls.startsWith('2') || cls.startsWith('3')) {
@@ -2837,51 +2916,9 @@ r = float(input())
                 if ([...gradeSelect.options].some(o => o.value === currentVal)) gradeSelect.value = currentVal;
             }
 
-            const qFilter = document.getElementById('questionBankClassFilter');
-            if (qFilter) {
-                const currentVal = qFilter.value;
-                let options = '<option value="ALL">顯示全部班別題目</option>';
-                options += '<option value="1A,1B,1C,1D">中一全級</option>';
-                options += '<option value="2A,2B,2C,2D">中二全級</option>';
-                options += '<option value="3A,3B,3C,3D">中三全級</option>';
-                options += '<option value="4A,4B,4C,4D,4E">中四全級</option>';
-                options += '<option value="5A,5B,5C,5D,5E">中五全級</option>';
-                options += '<option value="6A,6B,6C,6D,6E">中六全級</option>';
-                classes.forEach(cls => {
-                    options += `<option value="${cls}">${cls} 全班</option>`;
-                    if (cls.startsWith('1') || cls.startsWith('2') || cls.startsWith('3')) {
-                        options += `<option value="${cls}_ODD">${cls} 單數</option>`;
-                        options += `<option value="${cls}_EVEN">${cls} 雙數</option>`;
-                    }
-                });
-                qFilter.innerHTML = options;
-                if ([...qFilter.options].some(o => o.value === currentVal)) qFilter.value = currentVal;
-            }
+            populateClassSelect(document.getElementById('questionBankClassFilter'), '顯示全部任教班別題目');
 
-            const anaFilter = document.getElementById('analyticsClassFilter');
-            if (anaFilter) {
-                const currentVal = anaFilter.value;
-                let allowedClasses = classes;
-                if (currentUser && currentUser.role === 'teacher' && !currentUser.managedClasses.includes('ALL')) {
-                    allowedClasses = classes.filter(c => currentUser.managedClasses.includes(c));
-                }
-                let options = '<option value="ALL">全部任教班別</option>';
-                options += '<option value="1A,1B,1C,1D">中一全級</option>';
-                options += '<option value="2A,2B,2C,2D">中二全級</option>';
-                options += '<option value="3A,3B,3C,3D">中三全級</option>';
-                options += '<option value="4A,4B,4C,4D,4E">中四全級</option>';
-                options += '<option value="5A,5B,5C,5D,5E">中五全級</option>';
-                options += '<option value="6A,6B,6C,6D,6E">中六全級</option>';
-                allowedClasses.forEach(cls => {
-                    options += `<option value="${cls}">${cls} 全班</option>`;
-                    if (cls.startsWith('1') || cls.startsWith('2') || cls.startsWith('3')) {
-                        options += `<option value="${cls}_ODD">${cls} 單數</option>`;
-                        options += `<option value="${cls}_EVEN">${cls} 雙數</option>`;
-                    }
-                });
-                anaFilter.innerHTML = options;
-                if ([...anaFilter.options].some(o => o.value === currentVal)) anaFilter.value = currentVal;
-            }
+            populateClassSelect(document.getElementById('analyticsClassFilter'), '全部任教班別');
         }
 
         function renderTeacherStudentsTable(classFilter = 'ALL') {
